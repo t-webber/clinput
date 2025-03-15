@@ -1,3 +1,5 @@
+use cli_history_input::App;
+
 fn main() {
-    println!("Hello, world!");
+    App::from(|line| println!(">>> {line}")).run();
 }
