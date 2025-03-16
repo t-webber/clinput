@@ -47,11 +47,13 @@
     reason = "conveniant"
 )]
 #![allow(clippy::blanket_clippy_restriction_lints, reason = "enable all lints")]
+#![allow(clippy::print_stdout, reason = "crate's goal")]
 
 mod history;
 mod line;
 
 use core::fmt::Debug;
+use std::io::{self, Write as _, stdout};
 
 use crossterm::event::{Event, KeyCode, read};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
@@ -104,6 +106,7 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
     /// - On enter press, execute the line.
     /// - On escape press, exit the runner.
     pub fn run(&mut self) {
+        self.log_error(print_code_line_flush(""));
         while self.step() {}
         self.log_error(disable_raw_mode());
     }
@@ -113,14 +116,27 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
         if let Some(Event::Key(key)) = self.log_error(read()) {
             match key.code {
                 KeyCode::Enter => self.take_action(),
-                KeyCode::Char(ch) => self.line.insert(ch),
+                KeyCode::Char(ch) => {
+                    let result = self.line.insert(ch);
+                    self.log_error(result).unwrap_or_default();
+                }
                 KeyCode::Backspace => self.line.backspace(),
                 KeyCode::Esc => return false,
                 KeyCode::Left => self.line.decrease_counter(),
                 KeyCode::Right => self.line.increase_counter(),
-                KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::Home
+                KeyCode::Up => {
+                    if let Some(line) = self.history.up() {
+                        let result = self.line.set(line.to_owned());
+                        self.log_error(result);
+                    }
+                }
+                KeyCode::Down => {
+                    if let Some(line) = self.history.down() {
+                        let result = self.line.set(line.to_owned());
+                        self.log_error(result);
+                    }
+                }
+                KeyCode::Home
                 | KeyCode::End
                 | KeyCode::PageUp
                 | KeyCode::PageDown
@@ -148,8 +164,21 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
     ///
     /// This is called when [`KeyCode::Enter`] is pressed.
     fn take_action(&mut self) {
+        println!();
         let line = self.line.take();
         (self.action)(&line);
         self.history.push(line.into_boxed_str());
+        self.log_error(print_code_line_flush(""));
     }
+}
+
+/// Print without new line but flush anyway.
+fn print_code_line(line: &str) {
+    print!("\r>>> {line}");
+}
+
+/// Print without new line but flush anyway.
+fn print_code_line_flush(line: &str) -> Result<(), io::Error> {
+    print!("\r>>> {line}");
+    stdout().flush()
 }
