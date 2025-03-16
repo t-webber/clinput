@@ -1,10 +1,9 @@
 #![feature(test)]
 
 extern crate test;
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, VecDeque},
-};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, VecDeque};
+
 use test::Bencher;
 
 const TESTS: [(usize, char); 100] = [
