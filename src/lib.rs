@@ -44,7 +44,7 @@
 #![allow(
     clippy::else_if_without_else,
     clippy::pattern_type_mismatch,
-    reason = "conveniant"
+    reason = "convenient"
 )]
 #![allow(clippy::blanket_clippy_restriction_lints, reason = "enable all lints")]
 #![allow(clippy::print_stdout, reason = "crate's goal")]
@@ -59,6 +59,9 @@ use crossterm::event::{Event, KeyCode, read};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use history::History;
 use line::Line;
+
+/// Size of the prefix displayed at every start of line.
+const PREFIX_SIZE: u16 = 4;
 
 /// Application data containing the current line and the history of executed
 /// commands.
@@ -107,35 +110,35 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
     /// - On escape press, exit the runner.
     pub fn run(&mut self) {
         self.log_error(print_code_line_flush(""));
-        while self.step() {}
+        loop {
+            match self.step() {
+                Ok(false) => break,
+                res => {
+                    self.log_error(res);
+                }
+            }
+        }
         self.log_error(disable_raw_mode());
     }
 
     /// Main runner for one line.
-    fn step(&mut self) -> bool {
+    fn step(&mut self) -> Result<bool, io::Error> {
         if let Some(Event::Key(key)) = self.log_error(read()) {
             match key.code {
-                KeyCode::Enter => self.take_action(),
-                KeyCode::Char(ch) => {
-                    let result = self.line.insert(ch);
-                    self.log_error(result).unwrap_or_default();
-                }
-                KeyCode::Backspace => self.line.backspace(),
-                KeyCode::Esc => return false,
+                KeyCode::Enter => self.take_action()?,
+                KeyCode::Char(ch) => self.line.insert(ch)?,
+                KeyCode::Backspace => self.line.backspace()?,
+                KeyCode::Esc => return Ok(false),
                 KeyCode::Left => self.line.decrease_counter(),
                 KeyCode::Right => self.line.increase_counter(),
-                KeyCode::Up => {
+                KeyCode::Up =>
                     if let Some(line) = self.history.up() {
-                        let result = self.line.set(line.to_owned());
-                        self.log_error(result);
-                    }
-                }
-                KeyCode::Down => {
+                        self.line.set(line.to_owned())?;
+                    },
+                KeyCode::Down =>
                     if let Some(line) = self.history.down() {
-                        let result = self.line.set(line.to_owned());
-                        self.log_error(result);
-                    }
-                }
+                        self.line.set(line.to_owned())?;
+                    },
                 KeyCode::Home
                 | KeyCode::End
                 | KeyCode::PageUp
@@ -157,20 +160,23 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
                 | KeyCode::Modifier(_) => (),
             }
         }
-        true
+        self.line.update_cursor().map(|()| true)
     }
 
     /// Submit the action
     ///
     /// This is called when [`KeyCode::Enter`] is pressed.
-    fn take_action(&mut self) {
+    fn take_action(&mut self) -> Result<(), io::Error> {
         println!();
         let line = self.line.take();
         (self.action)(&line);
         self.history.push(line.into_boxed_str());
-        self.log_error(print_code_line_flush(""));
+        print_code_line_flush("")
     }
 }
+
+/// Result to handle io errors
+type IoResult = Result<(), io::Error>;
 
 /// Print without new line but flush anyway.
 fn print_code_line(line: &str) {
@@ -179,6 +185,6 @@ fn print_code_line(line: &str) {
 
 /// Print without new line but flush anyway.
 fn print_code_line_flush(line: &str) -> Result<(), io::Error> {
-    print!("\r>>> {line}");
+    print_code_line(line);
     stdout().flush()
 }
