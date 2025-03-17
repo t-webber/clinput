@@ -1,8 +1,10 @@
 [package]
-name = "cli-history-input"
+name = "clinput"
 version = "0.1.0"
 edition = "2024"
 license = "MIT or Apache-2.0"
+repository = "https://github.com/t-webber/clinput"
+authors = ["Tom Webber"]
 
 [dependencies]
 crossterm = "0.28.1"
