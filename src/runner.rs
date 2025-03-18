@@ -1,0 +1,137 @@
+//! Runner for the application
+
+use core::fmt;
+use crossterm::{
+    event::{Event, KeyCode, read},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+use std::io;
+
+use crate::{history::History, line::Line, print_code_line_flush};
+
+/// Application data containing the current line and the history of executed
+/// commands.
+pub struct App<F: Fn(&str), L: Fn(String)> {
+    /// Action executed every line
+    action: Option<F>,
+    /// History of submitted lines
+    history: History,
+    /// Current line
+    line: Line,
+    /// Action executed when an error occurs
+    log: Option<L>,
+}
+
+impl<F: Fn(&str), L: Fn(String)> App<F, L> {
+    /// Log errors in a way wanted by the user not to pollute the terminal
+    fn log_error<T>(&self, result: Result<T, impl fmt::Debug>) -> Option<T> {
+        match result {
+            Ok(val) => Some(val),
+            Err(err) => {
+                if let Some(log) = &self.log {
+                    log(format!("[ERROR] {err:?}"));
+                }
+                None
+            }
+        }
+    }
+
+    /// Main runner for one line.
+    fn step(&mut self) -> Result<bool, io::Error> {
+        if let Some(Event::Key(key)) = self.log_error(read()) {
+            match key.code {
+                KeyCode::Enter => self.take_action()?,
+                KeyCode::Char(ch) => self.line.insert(ch)?,
+                KeyCode::Backspace => self.line.backspace()?,
+                KeyCode::Esc => return Ok(false),
+                KeyCode::Left => self.line.decrease_counter(),
+                KeyCode::Right => self.line.increase_counter(),
+                KeyCode::Up => {
+                    if let Some(line) = self.history.up() {
+                        self.line.set(line.to_owned())?;
+                    }
+                }
+                KeyCode::Down => {
+                    if let Some(line) = self.history.down() {
+                        self.line.set(line.to_owned())?;
+                    }
+                }
+                KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Tab
+                | KeyCode::BackTab
+                | KeyCode::Delete
+                | KeyCode::Insert
+                | KeyCode::F(_)
+                | KeyCode::Null
+                | KeyCode::CapsLock
+                | KeyCode::ScrollLock
+                | KeyCode::NumLock
+                | KeyCode::PrintScreen
+                | KeyCode::Pause
+                | KeyCode::Menu
+                | KeyCode::KeypadBegin
+                | KeyCode::Media(_)
+                | KeyCode::Modifier(_) => (),
+            }
+        }
+        self.line.update_cursor().map(|()| true)
+    }
+
+    /// Submit the action
+    ///
+    /// This is called when [`KeyCode::Enter`] is pressed.
+    fn take_action(&mut self) -> Result<(), io::Error> {
+        println!();
+        let line = self.line.take();
+        if let Some(action) = &self.action {
+            action(&line);
+        }
+        self.history.push(line.into_boxed_str());
+        print_code_line_flush("")
+    }
+}
+
+impl<F: Fn(&str), L: Fn(String)> App<F, L> {
+    /// Sets the action of the app
+    pub fn action(&mut self, action: F) {
+        self.action = Some(action);
+    }
+
+    /// Sets the logger of the app
+    pub fn log(&mut self, log: L) {
+        self.log = Some(log);
+    }
+
+    /// Creates an empty [`App`]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Run the infinite loop on the line inputs
+    ///
+    /// - On enter press, execute the line.
+    /// - On escape press, exit the runner.
+    pub fn run(&mut self) {
+        self.log_error(print_code_line_flush(""));
+        loop {
+            match self.step() {
+                Ok(false) => break,
+                res => {
+                    self.log_error(res);
+                }
+            }
+        }
+        self.log_error(disable_raw_mode());
+    }
+}
+
+impl<F: Fn(&str), L: Fn(String)> Default for App<F, L> {
+    fn default() -> Self {
+        enable_raw_mode().unwrap_or_default();
+        Self { action: None, history: History::default(), line: Line::default(), log: None }
+    }
+}
