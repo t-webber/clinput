@@ -7,13 +7,20 @@ use crossterm::{
 };
 use std::io;
 
-use crate::{history::History, line::Line, print_code_line_flush};
+use crate::{history::History, interface::AppInterface, line::Line, print_code_line_flush};
+
+impl<A> Action for A where A: Fn(&mut AppInterface<'_>) {}
+
+/// Type of an action
+///
+/// The action is what is executed on every line submission with the [`KeyCode::Enter`] key.
+pub trait Action: Fn(&mut AppInterface<'_>) {}
 
 /// Application data containing the current line and the history of executed
 /// commands.
-pub struct App<F: Fn(&str), L: Fn(String)> {
+pub struct App<A: Action, L: Log> {
     /// Action executed every line
-    action: Option<F>,
+    action: Option<A>,
     /// History of submitted lines
     history: History,
     /// Current line
@@ -22,7 +29,7 @@ pub struct App<F: Fn(&str), L: Fn(String)> {
     log: Option<L>,
 }
 
-impl<F: Fn(&str), L: Fn(String)> App<F, L> {
+impl<A: Action, L: Log> App<A, L> {
     /// Log errors in a way wanted by the user not to pollute the terminal
     fn log_error<T>(&self, result: Result<T, impl fmt::Debug>) -> Option<T> {
         match result {
@@ -40,10 +47,10 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
     fn step(&mut self) -> Result<bool, io::Error> {
         if let Some(Event::Key(key)) = self.log_error(read()) {
             match key.code {
-                KeyCode::Enter => self.take_action()?,
+                KeyCode::Enter => return self.take_action(),
                 KeyCode::Char(ch) => self.line.insert(ch)?,
                 KeyCode::Backspace => self.line.backspace()?,
-                KeyCode::Esc => return Ok(false),
+                KeyCode::Esc => return Ok(true),
                 KeyCode::Left => self.line.decrease_counter(),
                 KeyCode::Right => self.line.increase_counter(),
                 KeyCode::Up => {
@@ -77,26 +84,28 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
                 | KeyCode::Modifier(_) => (),
             }
         }
-        self.line.update_cursor().map(|()| true)
+        self.line.update_cursor().map(|()| false)
     }
 
     /// Submit the action
     ///
     /// This is called when [`KeyCode::Enter`] is pressed.
-    fn take_action(&mut self) -> Result<(), io::Error> {
+    fn take_action(&mut self) -> Result<bool, io::Error> {
         println!();
         let line = self.line.take();
+        let mut interface = AppInterface::new(&line);
         if let Some(action) = &self.action {
-            action(&line);
+            action(&mut interface);
         }
+        let exit = interface.get_exit();
         self.history.push(line.into_boxed_str());
-        print_code_line_flush("")
+        print_code_line_flush("").map(|()| exit)
     }
 }
 
-impl<F: Fn(&str), L: Fn(String)> App<F, L> {
+impl<A: Action, L: Fn(String)> App<A, L> {
     /// Sets the action of the app
-    pub fn action(&mut self, action: F) {
+    pub fn action(&mut self, action: A) {
         self.action = Some(action);
     }
 
@@ -119,7 +128,7 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
         self.log_error(print_code_line_flush(""));
         loop {
             match self.step() {
-                Ok(false) => break,
+                Ok(true) => break,
                 res => {
                     self.log_error(res);
                 }
@@ -129,9 +138,16 @@ impl<F: Fn(&str), L: Fn(String)> App<F, L> {
     }
 }
 
-impl<F: Fn(&str), L: Fn(String)> Default for App<F, L> {
+impl<A: Action, L: Log> Default for App<A, L> {
     fn default() -> Self {
         enable_raw_mode().unwrap_or_default();
         Self { action: None, history: History::default(), line: Line::default(), log: None }
     }
 }
+
+impl<L: Fn(String)> Log for L {}
+
+/// Type of a log
+///
+/// The log is what is executed in case of error. This allows the users to store the errors somewhere without killing the program.
+pub trait Log: Fn(String) {}

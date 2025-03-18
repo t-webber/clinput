@@ -4,7 +4,7 @@ use clinput::App;
 
 fn main() {
     let mut app = App::new();
-    app.action(|line| fs::write("file", line).unwrap());
+    app.action(|interface| fs::write("file", interface.line()).unwrap());
     app.log(|err| fs::write("err", err).unwrap());
     app.run();
 }

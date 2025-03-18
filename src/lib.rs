@@ -51,9 +51,11 @@
 #![allow(clippy::print_stdout, reason = "crate's goal")]
 
 mod history;
+mod interface;
 mod line;
 mod runner;
 
+pub use interface::AppInterface;
 pub use runner::App;
 use std::io::{self, Write as _, stdout};
 
