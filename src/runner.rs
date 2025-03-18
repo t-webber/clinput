@@ -9,12 +9,12 @@ use std::io;
 
 use crate::{history::History, interface::AppInterface, line::Line, print_code_line_flush};
 
-impl<A> Action for A where A: Fn(&mut AppInterface<'_>) {}
+impl<A> Action for A where A: FnMut(&mut AppInterface<'_>) {}
 
 /// Type of an action
 ///
 /// The action is what is executed on every line submission with the [`KeyCode::Enter`] key.
-pub trait Action: Fn(&mut AppInterface<'_>) {}
+pub trait Action: FnMut(&mut AppInterface<'_>) {}
 
 /// Application data containing the current line and the history of executed
 /// commands.
@@ -31,15 +31,22 @@ pub struct App<A: Action, L: Log> {
 
 impl<A: Action, L: Log> App<A, L> {
     /// Log errors in a way wanted by the user not to pollute the terminal
-    fn log_error<T>(&self, result: Result<T, impl fmt::Debug>) -> Option<T> {
+    fn log_error<T>(&mut self, result: Result<T, impl fmt::Debug>) -> Option<T> {
         match result {
             Ok(val) => Some(val),
             Err(err) => {
-                if let Some(log) = &self.log {
+                if let Some(log) = &mut self.log {
                     log(format!("[ERROR] {err:?}"));
                 }
                 None
             }
+        }
+    }
+
+    /// Log some information in a way wanted by the user not to pollute the terminal
+    fn log_info(&mut self, info: impl fmt::Debug) {
+        if let Some(log) = &mut self.log {
+            log(format!("[INFO] {info:?}"));
         }
     }
 
@@ -48,7 +55,10 @@ impl<A: Action, L: Log> App<A, L> {
         if let Some(Event::Key(key)) = self.log_error(read()) {
             match key.code {
                 KeyCode::Enter => return self.take_action(),
-                KeyCode::Char(ch) => self.line.insert(ch)?,
+                KeyCode::Char(ch) => {
+                    self.log_info(format!("Insert {ch}."));
+                    self.line.insert(ch)?;
+                }
                 KeyCode::Backspace => self.line.backspace()?,
                 KeyCode::Esc => return Ok(true),
                 KeyCode::Left => self.line.decrease_counter(),
@@ -81,7 +91,9 @@ impl<A: Action, L: Log> App<A, L> {
                 | KeyCode::Menu
                 | KeyCode::KeypadBegin
                 | KeyCode::Media(_)
-                | KeyCode::Modifier(_) => (),
+                | KeyCode::Modifier(_) => {
+                    self.log_info(format!("Pressed unsupported {:?}.", key.code));
+                }
             }
         }
         self.line.update_cursor().map(|()| false)
@@ -94,7 +106,7 @@ impl<A: Action, L: Log> App<A, L> {
         println!();
         let line = self.line.take();
         let mut interface = AppInterface::new(&line);
-        if let Some(action) = &self.action {
+        if let Some(action) = &mut self.action {
             action(&mut interface);
         }
         let exit = interface.get_exit();
@@ -103,7 +115,7 @@ impl<A: Action, L: Log> App<A, L> {
     }
 }
 
-impl<A: Action, L: Fn(String)> App<A, L> {
+impl<A: Action, L: Log> App<A, L> {
     /// Sets the action of the app
     pub fn action(&mut self, action: A) {
         self.action = Some(action);
@@ -145,9 +157,9 @@ impl<A: Action, L: Log> Default for App<A, L> {
     }
 }
 
-impl<L: Fn(String)> Log for L {}
+impl<L: FnMut(String)> Log for L {}
 
 /// Type of a log
 ///
 /// The log is what is executed in case of error. This allows the users to store the errors somewhere without killing the program.
-pub trait Log: Fn(String) {}
+pub trait Log: FnMut(String) {}
