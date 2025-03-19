@@ -38,7 +38,7 @@ impl Line {
 
     /// Move the cursor right
     #[expect(clippy::arithmetic_side_effects, reason = "manual check")]
-    pub fn increase_counter(&mut self) {
+    pub const fn increase_counter(&mut self) {
         if self.cursor < self.content.len() {
             self.cursor += 1;
         }

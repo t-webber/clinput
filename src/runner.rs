@@ -1,19 +1,22 @@
 //! Runner for the application
 
 use core::fmt;
-use crossterm::{
-    event::{Event, KeyCode, read},
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
 use std::io;
 
-use crate::{history::History, interface::AppInterface, line::Line, print_code_line_flush};
+use crossterm::event::{Event, KeyCode, read};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+
+use crate::history::History;
+use crate::interface::AppInterface;
+use crate::line::Line;
+use crate::print_code_line_flush;
 
 impl<A> Action for A where A: FnMut(&mut AppInterface<'_>) {}
 
 /// Type of an action
 ///
-/// The action is what is executed on every line submission with the [`KeyCode::Enter`] key.
+/// The action is what is executed on every line submission with the
+/// [`KeyCode::Enter`] key.
 pub trait Action: FnMut(&mut AppInterface<'_>) {}
 
 /// Application data containing the current line and the history of executed
@@ -43,7 +46,8 @@ impl<A: Action, L: Log> App<A, L> {
         }
     }
 
-    /// Log some information in a way wanted by the user not to pollute the terminal
+    /// Log some information in a way wanted by the user not to pollute the
+    /// terminal
     fn log_info(&mut self, info: impl fmt::Debug) {
         if let Some(log) = &mut self.log {
             log(format!("[INFO] {info:?}"));
@@ -63,16 +67,14 @@ impl<A: Action, L: Log> App<A, L> {
                 KeyCode::Esc => return Ok(true),
                 KeyCode::Left => self.line.decrease_counter(),
                 KeyCode::Right => self.line.increase_counter(),
-                KeyCode::Up => {
+                KeyCode::Up =>
                     if let Some(line) = self.history.up() {
                         self.line.set(line.to_owned())?;
-                    }
-                }
-                KeyCode::Down => {
+                    },
+                KeyCode::Down =>
                     if let Some(line) = self.history.down() {
                         self.line.set(line.to_owned())?;
-                    }
-                }
+                    },
                 KeyCode::Home
                 | KeyCode::End
                 | KeyCode::PageUp
@@ -100,18 +102,18 @@ impl<A: Action, L: Log> App<A, L> {
     }
 
     /// Submit the action
-    ///
-    /// This is called when [`KeyCode::Enter`] is pressed.
     fn take_action(&mut self) -> Result<bool, io::Error> {
-        println!();
+        print!("\n\r");
         let line = self.line.take();
         let mut interface = AppInterface::new(&line);
         if let Some(action) = &mut self.action {
             action(&mut interface);
         }
-        let exit = interface.get_exit();
+        if interface.get_exit() {
+            return Ok(true);
+        }
         self.history.push(line.into_boxed_str());
-        print_code_line_flush("").map(|()| exit)
+        print_code_line_flush("").map(|()| false)
     }
 }
 
@@ -146,6 +148,7 @@ impl<A: Action, L: Log> App<A, L> {
                 }
             }
         }
+        print!("\r");
         self.log_error(disable_raw_mode());
     }
 }
@@ -161,5 +164,6 @@ impl<L: FnMut(String)> Log for L {}
 
 /// Type of a log
 ///
-/// The log is what is executed in case of error. This allows the users to store the errors somewhere without killing the program.
+/// The log is what is executed in case of error. This allows the users to store
+/// the errors somewhere without killing the program.
 pub trait Log: FnMut(String) {}

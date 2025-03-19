@@ -1,8 +1,10 @@
-//! Defines the [`AppInterface`] data structure, used to interface with the client.
+//! Defines the [`AppInterface`] data structure, used to interface with the
+//! client.
 
 /// Interface provided to the client to configure the CLI.
 ///
-/// It provides functionalities to update and manage the execution. For instance, it provides ways to exit the program.
+/// It provides functionalities to update and manage the execution. For
+/// instance, it provides ways to exit the program.
 #[derive(Default)]
 pub struct AppInterface<'line> {
     /// Informs the runner to kill the runner at the next step.

@@ -55,9 +55,10 @@ mod interface;
 mod line;
 mod runner;
 
+use std::io::{self, Write as _, stdout};
+
 pub use interface::AppInterface;
 pub use runner::App;
-use std::io::{self, Write as _, stdout};
 
 /// Size of the prefix displayed at every start of line.
 const PREFIX_SIZE: u16 = 4;
