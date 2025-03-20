@@ -11,6 +11,24 @@ use crate::interface::AppInterface;
 use crate::line::Line;
 use crate::print_code_line_flush;
 
+/// Log the error if it exists
+///
+/// The error is logged in the way specified by the user. If no way was
+/// provided, nothing is done.
+macro_rules! log_error {
+    ($self:ident, $result:expr) => {
+        match $result {
+            Ok(val) => Some(val),
+            Err(err) => {
+                if let Some(log) = &mut $self.log {
+                    log(format!("[ERROR] {err:?}"));
+                }
+                None
+            }
+        }
+    };
+}
+
 impl<A> Action for A where A: FnMut(&mut AppInterface<'_>) {}
 
 /// Type of an action
@@ -33,19 +51,6 @@ pub struct App<A: Action, L: Log> {
 }
 
 impl<A: Action, L: Log> App<A, L> {
-    /// Log errors in a way wanted by the user not to pollute the terminal
-    fn log_error<T>(&mut self, result: Result<T, impl fmt::Debug>) -> Option<T> {
-        match result {
-            Ok(val) => Some(val),
-            Err(err) => {
-                if let Some(log) = &mut self.log {
-                    log(format!("[ERROR] {err:?}"));
-                }
-                None
-            }
-        }
-    }
-
     /// Log some information in a way wanted by the user not to pollute the
     /// terminal
     fn log_info(&mut self, info: impl fmt::Debug) {
@@ -56,9 +61,9 @@ impl<A: Action, L: Log> App<A, L> {
 
     /// Main runner for one line.
     fn step(&mut self) -> Result<bool, io::Error> {
-        if let Some(Event::Key(key)) = self.log_error(read()) {
+        if let Some(Event::Key(key)) = log_error!(self, read()) {
             match key.code {
-                KeyCode::Enter => return self.take_action(),
+                KeyCode::Enter => return Ok(self.take_action()),
                 KeyCode::Char(ch) => {
                     self.log_info(format!("Insert {ch}."));
                     self.line.insert(ch)?;
@@ -98,11 +103,11 @@ impl<A: Action, L: Log> App<A, L> {
                 }
             }
         }
-        self.line.update_cursor().map(|()| false)
+        Ok(false)
     }
 
     /// Submit the action
-    fn take_action(&mut self) -> Result<bool, io::Error> {
+    fn take_action(&mut self) -> bool {
         print!("\n\r");
         let line = self.line.take();
         let mut interface = AppInterface::new(&line);
@@ -110,10 +115,11 @@ impl<A: Action, L: Log> App<A, L> {
             action(&mut interface);
         }
         if interface.get_exit() {
-            return Ok(true);
+            return true;
         }
-        self.history.push(line.into_boxed_str());
-        print_code_line_flush("").map(|()| false)
+        log_error!(self, self.history.push(line.into_boxed_str()));
+        log_error!(self, print_code_line_flush(""));
+        false
     }
 }
 
@@ -121,6 +127,15 @@ impl<A: Action, L: Log> App<A, L> {
     /// Sets the action of the app
     pub fn action(&mut self, action: A) {
         self.action = Some(action);
+    }
+
+    /// Stores the history of entered commands
+    ///
+    /// This allows the user to go back in history even after the program is
+    /// killed. This is possible by storing the history of entered commands in a
+    /// file (the same principle as the `.bash_history` file).
+    pub fn history(&mut self, path: String) {
+        log_error!(self, self.history.store(path));
     }
 
     /// Sets the logger of the app
@@ -139,17 +154,20 @@ impl<A: Action, L: Log> App<A, L> {
     /// - On enter press, execute the line.
     /// - On escape press, exit the runner.
     pub fn run(&mut self) {
-        self.log_error(print_code_line_flush(""));
+        self.log_info("CLI started");
+        log_error!(self, self.history.load());
+        log_error!(self, print_code_line_flush(""));
         loop {
             match self.step() {
                 Ok(true) => break,
                 res => {
-                    self.log_error(res);
+                    log_error!(self, res);
                 }
             }
+            log_error!(self, self.line.update_cursor());
         }
         print!("\r");
-        self.log_error(disable_raw_mode());
+        log_error!(self, disable_raw_mode());
     }
 }
 

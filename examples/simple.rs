@@ -18,5 +18,6 @@ fn main() {
     let mut app = App::new();
     app.action(|interface| writeln!(lines, "{}", interface.line()).unwrap());
     app.log(|err| writeln!(errors, "{err}").unwrap());
+    app.history("history.txt".to_owned());
     app.run();
 }
