@@ -1,6 +1,7 @@
 //! Manage the submitted command history
 
 use core::mem::take;
+use core::ops::Deref;
 use std::io::stdout;
 
 use crossterm::ExecutableCommand as _;
@@ -78,5 +79,13 @@ impl Line {
         stdout()
             .execute(MoveToColumn(PREFIX_SIZE.saturating_add(self.cursor as u16)))
             .map(|_| ())
+    }
+}
+
+impl Deref for Line {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.content
     }
 }

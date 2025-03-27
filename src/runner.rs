@@ -7,7 +7,8 @@ use crossterm::event::{Event, KeyCode, read};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
 use crate::history::History;
-use crate::interface::AppInterface;
+use crate::interface::{AppInterface, ReturnStatus};
+use crate::key::{Key, KeyPress, Keys};
 use crate::line::Line;
 use crate::print_code_line_flush;
 
@@ -33,24 +34,25 @@ impl<A> Action for A where A: FnMut(&mut AppInterface<'_>) {}
 
 /// Type of an action
 ///
-/// The action is what is executed on every line submission with the
-/// [`KeyCode::Enter`] key.
+/// An action is what is executed on every time a key is pressed.
 pub trait Action: FnMut(&mut AppInterface<'_>) {}
 
 /// Application data containing the current line and the history of executed
 /// commands.
-pub struct App<A: Action, L: Log> {
-    /// Action executed every line
-    action: Option<A>,
+pub struct App<S: Action, L: Log> {
     /// History of submitted lines
     history: History,
+    /// Actions executed every time a protected key is pressed
+    keys: Keys,
     /// Current line
     line: Line,
     /// Action executed when an error occurs
     log: Option<L>,
+    /// Action executed every line
+    on_submit: Option<S>,
 }
 
-impl<A: Action, L: Log> App<A, L> {
+impl<S: Action, L: Log> App<S, L> {
     /// Log some information in a way wanted by the user not to pollute the
     /// terminal
     fn log_info(&mut self, info: impl fmt::Debug) {
@@ -60,7 +62,7 @@ impl<A: Action, L: Log> App<A, L> {
     }
 
     /// Main runner for one line.
-    fn step(&mut self) -> Result<bool, io::Error> {
+    fn step(&mut self) -> Result<ReturnStatus, io::Error> {
         if let Some(Event::Key(key)) = log_error!(self, read()) {
             match key.code {
                 KeyCode::Enter => return Ok(self.take_action()),
@@ -69,7 +71,6 @@ impl<A: Action, L: Log> App<A, L> {
                     self.line.insert(ch)?;
                 }
                 KeyCode::Backspace => self.line.backspace()?,
-                KeyCode::Esc => return Ok(true),
                 KeyCode::Left => self.line.decrease_counter(),
                 KeyCode::Right => self.line.increase_counter(),
                 KeyCode::Up =>
@@ -80,6 +81,7 @@ impl<A: Action, L: Log> App<A, L> {
                     if let Some(line) = self.history.down() {
                         self.line.set(line.to_owned())?;
                     },
+                KeyCode::Esc => return Ok(self.keys.fire_key(&Key::Escape, &self.line)),
                 KeyCode::Home
                 | KeyCode::End
                 | KeyCode::PageUp
@@ -103,32 +105,28 @@ impl<A: Action, L: Log> App<A, L> {
                 }
             }
         }
-        Ok(false)
+        Ok(ReturnStatus::default())
     }
 
-    /// Submit the action
-    fn take_action(&mut self) -> bool {
+    /// Execute the action for the submitted line
+    fn take_action(&mut self) -> ReturnStatus {
         print!("\n\r");
         let line = self.line.take();
         let mut interface = AppInterface::new(&line);
-        if let Some(action) = &mut self.action {
-            action(&mut interface);
+        if let Some(on_submit) = &mut self.on_submit {
+            on_submit(&mut interface);
         }
-        if interface.get_exit() {
-            return true;
+        let status = interface.take_status();
+        if matches!(status, ReturnStatus::Exit) {
+            return status;
         }
-        log_error!(self, self.history.push(line.into_boxed_str()));
+        log_error!(self, self.history.push(line));
         log_error!(self, print_code_line_flush(""));
-        false
+        status
     }
 }
 
-impl<A: Action, L: Log> App<A, L> {
-    /// Sets the action of the app
-    pub fn action(&mut self, action: A) {
-        self.action = Some(action);
-    }
-
+impl<S: Action, L: Log> App<S, L> {
     /// Stores the history of entered commands
     ///
     /// This allows the user to go back in history even after the program is
@@ -149,6 +147,16 @@ impl<A: Action, L: Log> App<A, L> {
         Self::default()
     }
 
+    /// Sets the action of a key
+    pub fn on(&mut self, key: Key, on_submit: KeyPress) {
+        self.keys.define_key(key, on_submit);
+    }
+
+    /// Sets the action of the app
+    pub fn on_submit(&mut self, on_submit: S) {
+        self.on_submit = Some(on_submit);
+    }
+
     /// Run the infinite loop on the line inputs
     ///
     /// - On enter press, execute the line.
@@ -159,7 +167,12 @@ impl<A: Action, L: Log> App<A, L> {
         log_error!(self, print_code_line_flush(""));
         loop {
             match self.step() {
-                Ok(true) => break,
+                Ok(ReturnStatus::Exit) => break,
+                Ok(ReturnStatus::ClearScreen) => {
+                    print!("\x1B[2J\x1B[1;1H");
+                    self.line.take();
+                    log_error!(self, print_code_line_flush(""));
+                }
                 res => {
                     log_error!(self, res);
                 }
@@ -171,10 +184,16 @@ impl<A: Action, L: Log> App<A, L> {
     }
 }
 
-impl<A: Action, L: Log> Default for App<A, L> {
+impl<S: Action, L: Log> Default for App<S, L> {
     fn default() -> Self {
         enable_raw_mode().unwrap_or_default();
-        Self { action: None, history: History::default(), line: Line::default(), log: None }
+        Self {
+            on_submit: None,
+            keys: Keys::new(),
+            history: History::default(),
+            line: Line::default(),
+            log: None,
+        }
     }
 }
 

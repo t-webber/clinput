@@ -52,19 +52,21 @@
 
 mod history;
 mod interface;
+mod key;
 mod line;
 mod runner;
 
-use std::io::{self, Write as _, stdout};
+use std::io::{self, Write as _};
 
 pub use interface::AppInterface;
+pub use key::Key;
 pub use runner::App;
 
 /// Size of the prefix displayed at every start of line.
 const PREFIX_SIZE: u16 = 4;
 
 /// Result to handle io errors
-type IoResult = Result<(), io::Error>;
+type IoResult<T = ()> = Result<T, io::Error>;
 
 /// Print without new line but flush anyway.
 fn print_code_line(line: &str) {
@@ -72,7 +74,7 @@ fn print_code_line(line: &str) {
 }
 
 /// Print without new line but flush anyway.
-fn print_code_line_flush(line: &str) -> Result<(), io::Error> {
+fn print_code_line_flush(line: &str) -> IoResult {
     print_code_line(line);
-    stdout().flush()
+    io::stdout().flush()
 }

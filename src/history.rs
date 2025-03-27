@@ -9,7 +9,7 @@ use crate::IoResult;
 #[derive(Default)]
 pub struct History {
     /// List of submitted commands
-    content: Vec<Box<str>>,
+    content: Vec<String>,
     /// Cursor in the search of a command
     cursor: usize,
     /// Function to store the history on the disk
@@ -55,7 +55,7 @@ impl History {
     }
 
     /// Push a new line into the history
-    pub fn push(&mut self, line: Box<str>) -> IoResult {
+    pub fn push(&mut self, line: String) -> IoResult {
         if let Some(store) = &mut self.store {
             writeln!(store, "{line}")?;
         }
